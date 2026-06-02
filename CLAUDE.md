@@ -1,530 +1,1 @@
-# CLAUDE.md — MoodScribe
-
-> This file is the single source of truth for this project.
-> Read it in full at the start of every session before generating any code.
-
----
-
-## Project Vision
-
-MoodScribe is a mood-aware journaling web app where users write entries, Claude analyzes their emotional tone, and they reflect on mood patterns over time.
-
-The core loop is: **Write → Analyze → Reflect.**
-
-The philosophy: writing is therapeutic. AI makes it more insightful. The app should feel calm, personal, and honest — not clinical or gamified.
-
----
-
-## Engineering Behavior Rules
-
-### Think Before Coding
-- State assumptions before implementation.
-- If multiple interpretations exist, present options instead of choosing silently.
-- If requirements are unclear, stop and ask.
-- Push back when a simpler approach exists.
-
-### Simplicity First
-- Build the minimum code needed for the current phase.
-- No speculative abstractions.
-- No features beyond the current phase.
-- Prefer readable code over clever code.
-
-### Surgical Changes
-- Touch only files related to the current task.
-- Do not refactor unrelated code.
-- Keep diffs small and focused.
-- Mention unrelated issues instead of fixing them silently.
-
-### Goal-Driven Execution
-Before coding, state:
-1. Current phase
-2. Goal
-3. Success criteria
-4. Verification steps
-
----
-
-## MVP Scope
-
-A user can:
-1. Sign up and log in with email and password
-2. Write a journal entry and click "Analyze"
-3. See a mood label, emoji, and one affirming sentence returned by Claude
-4. Have that entry saved to Supabase with the mood metadata attached
-5. View a list of all past entries with mood badges
-6. See a simple mood breakdown for the last 30 days
-7. Log out
-
-When all seven of these work end-to-end on the Vercel production URL, the MVP is complete.
-
----
-
-## Out-of-Scope Features
-
-Do not implement these unless the MVP is fully shipped and a new phase is explicitly approved:
-- Social login (Google, GitHub, etc.)
-- Rich text or Markdown editor
-- Voice input
-- Entry export or PDF download
-- AI chat with your journal history
-- Native mobile app
-- Custom domain or transactional email
-- Tags, categories, or search
-- Entry editing after save
-- Collaborative or shared journals
-- Streaks, gamification, or notifications
-- Dark mode toggle (pick one theme and ship it)
-
-If I ask for any of these during an active phase, remind me they are out of scope and ask if I want to log them for later.
-
----
-
-## Tech Stack
-
-| Layer | Technology | Version |
-|---|---|---|
-| Framework | Next.js App Router | 15.x |
-| Language | TypeScript | 5.x |
-| Styling | Tailwind CSS | 4.x |
-| Database + Auth | Supabase | latest |
-| AI | Anthropic Claude API | `claude-sonnet-4-20250514` |
-| Deployment | Vercel | latest |
-| Package manager | npm | latest |
-
-No additional UI libraries, chart libraries, ORM layers, or state management libraries for the MVP. Keep the dependency count minimal.
-
----
-
-## Architecture Principles
-
-**1. Server-first.** Use React Server Components by default. Only add `"use client"` when the component genuinely requires browser APIs or event handlers. If in doubt, keep it on the server.
-
-**2. One direction of data flow.** Data flows: Supabase → Server Component → props → Client Component. Never fetch from Supabase inside a Client Component directly.
-
-**3. Server Actions for mutations, API Routes for external services.** Use Server Actions (`actions/entries.ts`) for all Supabase writes. Use API Routes (`app/api/`) only for the Claude call, because it benefits from explicit HTTP semantics (status codes, streaming potential).
-
-**4. The Claude API key never touches the browser.** It is read only in `app/api/analyze/route.ts`. It is never imported in any file with `"use client"` at the top.
-
-**5. RLS is the security layer, not the application layer.** Never rely on application-level filtering as the only protection for user data. Supabase Row Level Security policies are mandatory and must be verified with a two-account test before Phase 4 is closed.
-
-**6. One thing per phase.** Do not blend infrastructure concerns. Auth is not introduced until the database is working. The database is not introduced until Claude is working.
-
----
-
-## Folder Structure
-
-```
-moodscribe/
-├── app/
-│   ├── (auth)/                   # Unauthenticated route group — no app chrome
-│   │   ├── login/
-│   │   │   └── page.tsx
-│   │   └── signup/
-│   │       └── page.tsx
-│   ├── (app)/                    # Authenticated route group — has nav shell
-│   │   ├── layout.tsx            # Auth guard: redirects to /login if no session
-│   │   ├── journal/
-│   │   │   └── page.tsx
-│   │   └── stats/
-│   │       └── page.tsx
-│   ├── api/
-│   │   └── analyze/
-│   │       └── route.ts          # POST — calls Claude, returns mood JSON
-│   ├── layout.tsx                # Root layout: fonts, metadata, Tailwind base
-│   └── page.tsx                  # Redirects to /journal or /login
-│
-├── components/
-│   ├── ui/                       # Primitive components: Button, Input, Badge, Spinner
-│   ├── entry-card.tsx            # Single journal entry: content, mood badge, date
-│   ├── entry-form.tsx            # Textarea + Analyze button — always "use client"
-│   ├── mood-badge.tsx            # Emoji + label chip, color-coded per mood
-│   └── mood-stats.tsx            # Mood breakdown display
-│
-├── lib/
-│   ├── supabase/
-│   │   ├── client.ts             # Browser Supabase client (used in Client Components)
-│   │   └── server.ts             # Server Supabase client using cookies from @supabase/ssr
-│   ├── claude.ts                 # analyzeEntry(content): calls Anthropic SDK, returns MoodResult
-│   └── types.ts                  # All shared TypeScript types: Entry, Mood, MoodResult
-│
-├── actions/
-│   └── entries.ts                # Server Actions: saveEntry, getEntries, deleteEntry
-│
-├── middleware.ts                  # Supabase session refresh on every request
-├── .env.local                    # Secret keys — never committed
-├── .env.example                  # Empty keys — always committed
-└── next.config.ts
-```
-
-Do not create files outside this structure without discussion. Do not create barrel `index.ts` files unless there are more than five exports to consolidate.
-
----
-
-## Coding Standards
-
-### TypeScript
-- All functions must have explicit return types.
-- No `any`. Use `unknown` and narrow it, or define a proper type.
-- All shared types live in `lib/types.ts`. Do not define ad-hoc types inline in component files.
-- Prefer `type` over `interface` for data shapes. Use `interface` only for extensible contracts.
-- Use `satisfies` when validating object literals against a type without widening.
-
-### Components
-- Every component file exports exactly one component as the default export.
-- Props types are defined immediately above the component, named `[ComponentName]Props`.
-- Client Components are kept as small as possible — push logic up to Server Components or down to Server Actions.
-- No inline styles. All styling via Tailwind utility classes.
-
-### Naming conventions
-
-| Thing | Convention | Example |
-|---|---|---|
-| Files | kebab-case | `entry-card.tsx` |
-| Components | PascalCase | `EntryCard` |
-| Functions | camelCase | `analyzeEntry` |
-| Types | PascalCase | `MoodResult` |
-| Constants | SCREAMING_SNAKE | `MAX_ENTRY_LENGTH` |
-| Supabase tables | snake_case | `entries` |
-| Supabase columns | snake_case | `user_id`, `created_at` |
-
-### Error handling
-- Every `async` Server Action and API Route must have a top-level `try/catch`.
-- User-facing error messages must never expose internal error details, stack traces, or database error codes.
-- Claude API failures must return a safe fallback: `{ mood: "unknown", emoji: "🤔", affirmation: "Keep writing. Every word counts." }`.
-- Never use `console.log` in production code. Use `console.error` only in server-side catch blocks.
-
-### Comments
-- Write comments to explain *why*, not *what*. The code explains what.
-- Every Server Action must have a one-line JSDoc comment above it.
-- Every API Route handler must have a comment describing its inputs and outputs.
-
----
-
-## AI Integration Rules
-
-These rules are non-negotiable. Do not deviate from them.
-
-**Rule 1: Server-side only.**
-The Claude API is called exclusively in `app/api/analyze/route.ts`, which imports from `lib/claude.ts`. No other file may import `lib/claude.ts`. No file with `"use client"` may call the analyze endpoint directly via the Anthropic SDK — it must go through the API Route.
-
-**Rule 2: Fixed model.**
-Always use `claude-sonnet-4-20250514`. Do not switch models mid-project without explicit approval.
-
-**Rule 3: Fixed mood enum.**
-The system prompt instructs Claude to return one of exactly eight mood labels:
-`happy`, `sad`, `anxious`, `calm`, `angry`, `reflective`, `grateful`, `overwhelmed`.
-No other labels are accepted. If Claude returns an unexpected label, discard it and use the fallback.
-
-**Rule 4: JSON-only response.**
-The system prompt must include: *"Return only raw JSON with no markdown formatting, no code blocks, no explanation, and no preamble."*
-Parse the response with `JSON.parse` inside a `try/catch`. Never use regex to extract JSON.
-
-**Rule 5: Input validation before calling Claude.**
-Validate in `app/api/analyze/route.ts` before calling `analyzeEntry()`:
-- Minimum length: 10 characters
-- Maximum length: 2000 characters
-- Must be a non-empty string
-Return a 400 with a clear message if validation fails. Do not call Claude with invalid input.
-
-**Rule 6: Rate limiting.**
-Only apply after Phase 4. Do not implement rate limiting before authentication and RLS are completed. Before calling Claude, check how many entries the authenticated user has created today. If the count is 20 or more, return a 429 and do not call Claude. This check runs against the `entries` table in Supabase.
-
-**Rule 7: `max_tokens` must be set.**
-Always set `max_tokens: 150` on the Claude API call. The response is a small JSON object — there is no reason to allow more.
-
----
-
-## Supabase / Database Rules
-
-**Schema — MVP has one table, built across two migrations.**
-
-The schema evolves deliberately: Phase 3 introduces persistence without auth; Phase 4 tightens it once real users exist. This mirrors how production schemas actually grow and is a learning objective.
-
-`001_create_entries.sql` (run in Phase 3) — `user_id` is nullable; no foreign key yet because auth does not exist:
-
-```sql
-public.entries (
-  id          uuid          PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     uuid          NULL,
-  content     text          NOT NULL,
-  mood        text          NOT NULL,
-  mood_emoji  text          NOT NULL,
-  affirmation text          NOT NULL,
-  created_at  timestamptz   NOT NULL DEFAULT now()
-)
-```
-
-`002_add_user_id_and_rls.sql` (run in Phase 4) — adds `NOT NULL`, the foreign key to `auth.users`, enables RLS, and adds all three policies. All Phase 3 test rows must be deleted before this migration runs (see Phase 4 tasks).
-
-**Final production schema (after both migrations):**
-
-```sql
-public.entries (
-  id          uuid          PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     uuid          NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  content     text          NOT NULL,
-  mood        text          NOT NULL,
-  mood_emoji  text          NOT NULL,
-  affirmation text          NOT NULL,
-  created_at  timestamptz   NOT NULL DEFAULT now()
-)
-```
-
-**Migration rules:**
-- All schema changes are written as SQL and run in the Supabase dashboard SQL editor.
-- Migrations are saved as numbered files: `supabase/migrations/001_create_entries.sql`, `002_add_user_id_and_rls.sql`, etc.
-- Never alter a column type or drop a column without discussion.
-
-**Client rules:**
-- `lib/supabase/server.ts` is used in Server Components, Server Actions, API Routes, and middleware. It reads auth cookies via `@supabase/ssr`.
-- `lib/supabase/client.ts` is used only in Client Components that need real-time or auth state subscriptions. For MVP, this is only the auth forms.
-- The Supabase service role key (`SUPABASE_SERVICE_ROLE_KEY`) is **not used** in this project unless explicitly approved in writing. Use the anon key with RLS for all data access.
-
-**Query rules:**
-- Every query in a Server Action must be scoped to the authenticated user. Never query without a `user_id` filter after Phase 4.
-- Always select only the columns you need. Do not use `select('*')` in production queries after Phase 3.
-- Always handle the `error` object returned by Supabase queries. Never destructure only `data` and ignore `error`.
-
----
-
-## Auth / RLS Rules
-
-**Auth setup:**
-- Use `@supabase/ssr` for all server-side session handling. Do not use the legacy `@supabase/auth-helpers-nextjs`.
-- `middleware.ts` must refresh the Supabase session on every request using the cookie-based client.
-- The `(app)/layout.tsx` auth guard checks for a session server-side and redirects to `/login` if absent.
-
-**RLS policies — mandatory before Phase 4 gate:**
-
-```sql
--- Enable RLS on the table
-ALTER TABLE entries ENABLE ROW LEVEL SECURITY;
-
--- SELECT: users see only their own entries
-CREATE POLICY "users_select_own_entries"
-  ON entries FOR SELECT
-  USING (auth.uid() = user_id);
-
--- INSERT: users can only insert rows with their own user_id
-CREATE POLICY "users_insert_own_entries"
-  ON entries FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
--- DELETE: users can only delete their own entries
-CREATE POLICY "users_delete_own_entries"
-  ON entries FOR DELETE
-  USING (auth.uid() = user_id);
-```
-
-**RLS verification test (required before Phase 4 gate closes):**
-1. Create Account A, write two entries.
-2. Create Account B, write one entry.
-3. Log in as Account B.
-4. Confirm Account B cannot see or delete Account A's entries — neither via the UI nor via direct Supabase client query in browser DevTools.
-
----
-
-## Phase Roadmap
-
-### Phase 0 — Project Scaffold + Vercel Deploy
-
-**Goal:** A live Vercel URL exists before any feature is written.
-
-Tasks:
-- Scaffold Next.js 15 with TypeScript, Tailwind, App Router
-- Install all dependencies: `@anthropic-ai/sdk`, `@supabase/ssr`, `@supabase/supabase-js`
-- Set up the full folder structure from the spec above (empty files with placeholder exports)
-- Create `.env.local` and `.env.example`
-- Push to GitHub
-- Connect to Vercel, add placeholder env vars, confirm auto-deploy
-
-**Definition of Done:**
-- [ ] `npm run dev` works locally with no errors
-- [ ] `npm run build` passes with no TypeScript errors
-- [ ] The default Next.js page is live on a Vercel `*.vercel.app` URL
-- [ ] GitHub push triggers an automatic Vercel redeploy
-- [ ] `.env.local` is in `.gitignore` and not present in the GitHub repo
-
----
-
-### Phase 1 — Journal UI with Mock Data
-
-**Goal:** The complete app UI exists and is visually finished, powered entirely by hardcoded data.
-
-Tasks:
-- Define all types in `lib/types.ts`: `Entry`, `Mood`, `MoodResult`
-- Create `MOCK_ENTRIES` constant with 5–6 realistic fake entries covering multiple moods
-- Build `MoodBadge` — emoji + label, distinct Tailwind color per mood
-- Build `EntryCard` — content (truncated), mood badge, formatted date, delete placeholder
-- Build `EntryForm` — textarea, character counter, "Analyze" button in disabled/loading state
-- Build `/journal` page — `EntryForm` on top, `EntryCard` list below, fed from `MOCK_ENTRIES`
-- Add basic navigation shell (header with app name and placeholder nav links)
-- Make all components mobile-responsive
-- Deploy to Vercel
-
-**Definition of Done:**
-- [ ] `/journal` page renders correctly on mobile and desktop
-- [ ] All 8 mood types have a distinct visual treatment in `MoodBadge`
-- [ ] `EntryForm` shows a character counter and disables submit at 0 and >2000 chars
-- [ ] Loading state on the Analyze button is visible (spinner or disabled text)
-- [ ] No TypeScript errors on `npm run build`
-- [ ] Deployed and visually verified on the Vercel URL
-
----
-
-### Phase 2 — Claude Mood Analysis via API Route
-
-**Goal:** The Analyze button calls Claude and returns a real mood. No persistence yet — the result lives only in React state.
-
-Tasks:
-- Implement `lib/claude.ts`: `analyzeEntry(content: string): Promise<MoodResult>`
-- Implement `app/api/analyze/route.ts`: POST handler with input validation, calls `analyzeEntry`, returns JSON
-- Wire `EntryForm` to POST to `/api/analyze` on button click
-- Display the returned `MoodResult` (badge + affirmation) below the form after analysis
-- Add `ANTHROPIC_API_KEY` to `.env.local` and Vercel environment variables
-- Handle loading state (spinner while waiting), error state (friendly message if Claude fails)
-- Test that refreshing the page clears the result (no persistence yet — that's Phase 3)
-
-**Definition of Done:**
-- [ ] Typing an entry and clicking Analyze returns a real mood from Claude within 5 seconds
-- [ ] The mood label is always one of the 8 valid values from the enum
-- [ ] Submitting fewer than 10 characters returns a validation error, not a Claude call
-- [ ] The `ANTHROPIC_API_KEY` is not visible in the browser network tab (check DevTools)
-- [ ] Claude failure returns the fallback mood gracefully with no crash
-- [ ] Works on the Vercel URL, not just localhost
-- [ ] `npm run build` passes
-
----
-
-### Phase 3 — Supabase Database + Saving Entries
-
-**Goal:** Entries persist to Supabase. The mock data is removed. All data is real.
-
-**Schema note:** The `entries` table is created in this phase with `user_id` as nullable (no foreign key). Auth does not exist yet — adding a `NOT NULL` foreign key to `auth.users` without real users would break every INSERT. The column is tightened in Phase 4 once real users exist. This is intentional, not a shortcut.
-
-Tasks:
-- Create Supabase project, copy `SUPABASE_URL` and `SUPABASE_ANON_KEY` to `.env.local` and Vercel
-- Run `001_create_entries.sql` migration in Supabase SQL editor (`user_id uuid NULL`, no foreign key)
-- Implement `lib/supabase/server.ts` — simple anon client (no cookie handling yet)
-- Implement `actions/entries.ts`: `saveEntry()`, `getEntries()`, `deleteEntry()`
-- Update `EntryForm`: after Claude returns a mood, call `saveEntry()` automatically (no `user_id` passed yet)
-- Update `/journal` page: replace `MOCK_ENTRIES` with real data from `getEntries()`
-- Wire the delete button on `EntryCard` to `deleteEntry()`
-- Call `revalidatePath('/journal')` after save and delete
-
-**Definition of Done:**
-- [ ] Writing and analyzing an entry saves it to Supabase automatically
-- [ ] The entry list is populated from Supabase, not from mock data
-- [ ] `MOCK_ENTRIES` and all references to it are deleted from the codebase
-- [ ] Refreshing the page shows the same entries (persistence confirmed)
-- [ ] Deleting an entry removes it from the list and from the Supabase table
-- [ ] The entry row is visible in the Supabase dashboard Table Editor
-- [ ] `npm run build` passes, deployed and verified on Vercel
-
----
-
-### Phase 4 — Supabase Auth + Row Level Security
-
-**Goal:** Every user has a private journal. Data is isolated by user. This is the most complex phase.
-
-**Migration note:** `002_add_user_id_and_rls.sql` adds `NOT NULL` and the `REFERENCES auth.users(id)` foreign key constraint to the `user_id` column. A `NOT NULL` constraint cannot be applied while rows with `NULL` in that column exist. Delete all Phase 3 test data before running this migration.
-
-Tasks:
-- **Delete all Phase 3 test entries** from the Supabase Table Editor before running any migration
-- Enable email/password auth in Supabase Auth settings
-- Switch `lib/supabase/server.ts` to the `@supabase/ssr` cookie-based client
-- Create `lib/supabase/client.ts` for browser usage
-- Add `middleware.ts` for session refresh
-- Build `/login` page with email + password form using Supabase `signInWithPassword`
-- Build `/signup` page using Supabase `signUp`
-- Add auth guard to `app/(app)/layout.tsx`
-- Run `002_add_user_id_and_rls.sql`: add `NOT NULL` + foreign key to `user_id`, enable RLS, add all three policies
-- Update all Server Actions to scope queries by `auth.uid()`
-- Add logout button to nav shell
-- Run the two-account RLS verification test
-
-**Definition of Done:**
-- [ ] All Phase 3 test rows deleted before migration runs
-- [ ] Signing up with a new email creates an account and redirects to `/journal`
-- [ ] Logging out redirects to `/login`
-- [ ] Visiting `/journal` while logged out redirects to `/login`
-- [ ] Two-account isolation test passes: Account B cannot see Account A's entries
-- [ ] RLS policies are active (verify in Supabase Auth Policies UI)
-- [ ] No use of service role key anywhere in the codebase
-- [ ] `npm run build` passes, deployed and verified on Vercel
-
----
-
-### Phase 5 — Stats, Polish, and Hardening
-
-**Goal:** The app is finished, feels polished, and is safe to leave running in production.
-
-**Stats tasks:**
-- Build `/stats` page: count entries per mood for last 30 days
-- Display as a visual pill cluster or simple bar (no chart library)
-- Add nav links between `/journal` and `/stats`
-
-**Polish tasks:**
-- Empty state on `/journal` for first-time users
-- Empty state on `/stats` when fewer than 3 entries exist
-- Error boundary or fallback UI if the journal page fails to load
-- Loading skeleton for the entry list
-- Character counter warning colour change at 1800/2000 chars
-- `<title>`, `<meta description>`, and favicon
-
-**Hardening tasks:**
-- Rate limiting: check entry count for today in `route.ts` before calling Claude; return 429 if ≥ 20
-- Input sanitization: strip leading/trailing whitespace, reject entries that are only whitespace
-- Audit all environment variable names — confirm nothing secret has `NEXT_PUBLIC_` prefix
-- Re-run the two-account RLS test with a fresh browser session
-- Final `npm run build` with zero warnings
-- Full smoke test on Vercel: sign up → write entry → analyze → view stats → log out → log back in
-
-**Definition of Done:**
-- [ ] `/stats` page shows accurate mood counts for the last 30 days
-- [ ] All empty and error states are handled gracefully
-- [ ] Rate limiting blocks the 21st Claude call in a single day
-- [ ] No `NEXT_PUBLIC_` env vars contain secret values
-- [ ] A person who has never seen the app can use it without guidance
-- [ ] `npm run build` produces zero TypeScript errors and zero warnings
-- [ ] Every phase gate from Phase 0 through Phase 5 has been verified on the Vercel URL
-
----
-
-## Rules for Working Together During This Project
-
-These rules govern how I (Claude) will behave during every coding session.
-
-**Before writing any code:**
-1. State which phase we are in.
-2. Confirm the current phase gate has passed before starting the next phase. If it hasn't, stop and ask.
-3. Read this file in full if starting a new session.
-
-**During coding:**
-4. Write one logical unit at a time — one file, one function, one component. Do not generate the entire codebase in one response.
-5. After each file, explain what it does and why it is structured that way. You are here to learn, not just to ship.
-6. If a task requires a decision (e.g., which Tailwind color for a mood, what the affirmation prompt says), ask for input rather than deciding silently.
-7. Never skip error handling to make the code shorter.
-8. Never use the Supabase service role key. If I ask you to, remind me of this rule and propose an alternative.
-9. Never call the Claude API from a Client Component or any file with `"use client"`. If asked, refuse and explain why.
-
-**When I go off-script:**
-10. If I ask for a feature that is out of scope, name the feature, confirm it is out of scope per this document, and ask whether I want to log it for Phase 6 or formally change the scope.
-11. If I ask to skip a phase gate, remind me of the rule: *"Do not start the next phase until the current gate passes on Vercel."* Explain what is at risk if we skip.
-12. If I ask to add a library that is not in the tech stack, discuss the tradeoff before adding it. Default answer is no unless there is a strong reason.
-
-**On quality:**
-13. Every generated file must pass `npm run build` with no TypeScript errors before being considered complete.
-14. Every component must handle its loading, error, and empty states before the phase is marked done.
-15. Production code never contains `console.log`, `TODO` comments (unless explicitly flagged for a later phase), or hardcoded secrets.
-
-**On learning:**
-16. If I copy code without understanding it, slow down and explain the concept before moving on.
-17. At the end of each phase, summarize what was learned before starting the next one.
-18. If I ask "why" about any architectural decision, always answer — even if it means a longer response.
-
----
-
-*This file was created before any feature code was written. It is the contract for this project.*
-
-*Last updated: Phase 3/4 schema contradiction resolved — two-migration strategy adopted.*
+# CLAUDE.md — MoodScribe> This file is the single source of truth for this project.> Read it in full at the start of every session before generating any code.---## Project VisionMoodScribe is a mood-aware journaling web app where users write entries, Claude analyzes their emotional tone, and they reflect on mood patterns over time.The core loop is: **Write → Analyze → Reflect.**The philosophy: writing is therapeutic. AI makes it more insightful. The app should feel calm, personal, and honest — not clinical or gamified.---## Engineering Behavior Rules### Think Before Coding- State assumptions before implementation.- If multiple interpretations exist, present options instead of choosing silently.- If requirements are unclear, stop and ask.- Push back when a simpler approach exists.### Simplicity First- Build the minimum code needed for the current phase.- No speculative abstractions.- No features beyond the current phase.- Prefer readable code over clever code.### Surgical Changes- Touch only files related to the current task.- Do not refactor unrelated code.- Keep diffs small and focused.- Mention unrelated issues instead of fixing them silently.### Goal-Driven ExecutionBefore coding, state:1. Current phase2. Goal3. Success criteria4. Verification steps---## Commit Message ConventionAll commits should include an AI attribution footer:Generated with Claude Code---## MVP ScopeA user can:1. Sign up and log in with email and password2. Write a journal entry and click "Analyze"3. See a mood label, emoji, and one affirming sentence returned by Claude4. Have that entry saved to Supabase with the mood metadata attached5. View a list of all past entries with mood badges6. See a simple mood breakdown for the last 30 days7. Log outWhen all seven of these work end-to-end on the Vercel production URL, the MVP is complete.---## Out-of-Scope FeaturesDo not implement these unless the MVP is fully shipped and a new phase is explicitly approved:- Social login (Google, GitHub, etc.)- Rich text or Markdown editor- Voice input- Entry export or PDF download- AI chat with your journal history- Native mobile app- Custom domain or transactional email- Tags, categories, or search- Entry editing after save- Collaborative or shared journals- Streaks, gamification, or notifications- Dark mode toggle (pick one theme and ship it)If I ask for any of these during an active phase, remind me they are out of scope and ask if I want to log them for later.---## Tech Stack| Layer | Technology | Version ||---|---|---|| Framework | Next.js App Router | 16.x || Language | TypeScript | 5.x || Styling | Tailwind CSS | 4.x || Database + Auth | Supabase | latest || AI | Anthropic Claude API | `claude-sonnet-4-20250514` || Deployment | Vercel | latest || Package manager | npm | latest |No additional UI libraries, chart libraries, ORM layers, or state management libraries for the MVP. Keep the dependency count minimal.---## Architecture Principles**1. Server-first.** Use React Server Components by default. Only add `"use client"` when the component genuinely requires browser APIs or event handlers. If in doubt, keep it on the server.**2. One direction of data flow.** Data flows: Supabase → Server Component → props → Client Component. Never fetch from Supabase inside a Client Component directly.**3. Server Actions for mutations, API Routes for external services.** Use Server Actions (`actions/entries.ts`) for all Supabase writes. Use API Routes (`app/api/`) only for the Claude call, because it benefits from explicit HTTP semantics (status codes, streaming potential).**4. The Claude API key never touches the browser.** It is read only in `app/api/analyze/route.ts`. It is never imported in any file with `"use client"` at the top.**5. RLS is the security layer, not the application layer.** Never rely on application-level filtering as the only protection for user data. Supabase Row Level Security policies are mandatory and must be verified with a two-account test before Phase 4 is closed.**6. One thing per phase.** Do not blend infrastructure concerns. Auth is not introduced until the database is working. The database is not introduced until Claude is working.---## Folder Structure```moodscribe/├── app/│   ├── (auth)/                   # Unauthenticated route group — no app chrome│   │   ├── login/│   │   │   └── page.tsx│   │   └── signup/│   │       └── page.tsx│   ├── (app)/                    # Authenticated route group — has nav shell│   │   ├── layout.tsx            # Auth guard: redirects to /login if no session│   │   ├── journal/│   │   │   └── page.tsx│   │   └── stats/│   │       └── page.tsx│   ├── api/│   │   └── analyze/│   │       └── route.ts          # POST — calls Claude, returns mood JSON│   ├── layout.tsx                # Root layout: fonts, metadata, Tailwind base│   └── page.tsx                  # Redirects to /journal or /login│├── components/│   ├── ui/                       # Primitive components: Button, Input, Badge, Spinner│   ├── entry-card.tsx            # Single journal entry: content, mood badge, date│   ├── entry-form.tsx            # Textarea + Analyze button — always "use client"│   ├── mood-badge.tsx            # Emoji + label chip, color-coded per mood│   └── mood-stats.tsx            # Mood breakdown display│├── lib/│   ├── supabase/│   │   ├── client.ts             # Browser Supabase client (used in Client Components)│   │   └── server.ts             # Server Supabase client using cookies from @supabase/ssr│   ├── claude.ts                 # analyzeEntry(content): calls Anthropic SDK, returns MoodResult│   └── types.ts                  # All shared TypeScript types: Entry, Mood, MoodResult│├── actions/│   └── entries.ts                # Server Actions: saveEntry, getEntries, deleteEntry│├── proxy.ts                       # Supabase session refresh on every request├── .env.local                    # Secret keys — never committed├── .env.example                  # Empty keys — always committed└── next.config.ts```Do not create files outside this structure without discussion. Do not create barrel `index.ts` files unless there are more than five exports to consolidate.---## Coding Standards### TypeScript- All functions must have explicit return types.- No `any`. Use `unknown` and narrow it, or define a proper type.- All shared types live in `lib/types.ts`. Do not define ad-hoc types inline in component files.- Prefer `type` over `interface` for data shapes. Use `interface` only for extensible contracts.- Use `satisfies` when validating object literals against a type without widening.### Components- Every component file exports exactly one component as the default export.- Props types are defined immediately above the component, named `[ComponentName]Props`.- Client Components are kept as small as possible — push logic up to Server Components or down to Server Actions.- No inline styles. All styling via Tailwind utility classes.### Naming conventions| Thing | Convention | Example ||---|---|---|| Files | kebab-case | `entry-card.tsx` || Components | PascalCase | `EntryCard` || Functions | camelCase | `analyzeEntry` || Types | PascalCase | `MoodResult` || Constants | SCREAMING_SNAKE | `MAX_ENTRY_LENGTH` || Supabase tables | snake_case | `entries` || Supabase columns | snake_case | `user_id`, `created_at` |### Error handling- Every `async` Server Action and API Route must have a top-level `try/catch`.- User-facing error messages must never expose internal error details, stack traces, or database error codes.- Claude API failures must return a safe fallback: `{ mood: "unknown", emoji: "🤔", affirmation: "Keep writing. Every word counts." }`.- Never use `console.log` in production code. Use `console.error` only in server-side catch blocks.### Comments- Write comments to explain *why*, not *what*. The code explains what.- Every Server Action must have a one-line JSDoc comment above it.- Every API Route handler must have a comment describing its inputs and outputs.---## AI Integration RulesThese rules are non-negotiable. Do not deviate from them.**Rule 1: Server-side only.**The Claude API is called exclusively in `app/api/analyze/route.ts`, which imports from `lib/claude.ts`. No other file may import `lib/claude.ts`. No file with `"use client"` may call the analyze endpoint directly via the Anthropic SDK — it must go through the API Route.**Rule 2: Fixed model.**Always use `claude-sonnet-4-20250514`. Do not switch models mid-project without explicit approval.**Rule 3: Fixed mood enum.**The system prompt instructs Claude to return one of exactly eight mood labels:`happy`, `sad`, `anxious`, `calm`, `angry`, `reflective`, `grateful`, `overwhelmed`.No other labels are accepted. If Claude returns an unexpected label, discard it and use the fallback.**Rule 4: JSON-only response.**The system prompt must include: *"Return only raw JSON with no markdown formatting, no code blocks, no explanation, and no preamble."*Parse the response with `JSON.parse` inside a `try/catch`. Never use regex to extract JSON.**Rule 5: Input validation before calling Claude.**Validate in `app/api/analyze/route.ts` before calling `analyzeEntry()`:- Minimum length: 10 characters- Maximum length: 2000 characters- Must be a non-empty stringReturn a 400 with a clear message if validation fails. Do not call Claude with invalid input.**Rule 6: Rate limiting.**Only apply after Phase 4. Do not implement rate limiting before authentication and RLS are completed. Before calling Claude, check how many entries the authenticated user has created today. If the count is 20 or more, return a 429 and do not call Claude. This check runs against the `entries` table in Supabase.**Rule 7: `max_tokens` must be set.**Always set `max_tokens: 150` on the Claude API call. The response is a small JSON object — there is no reason to allow more.---## Supabase / Database Rules**Schema — MVP has one table, built across two migrations.**The schema evolves deliberately: Phase 3 introduces persistence without auth; Phase 4 tightens it once real users exist. This mirrors how production schemas actually grow and is a learning objective.`001_create_entries.sql` (run in Phase 3) — `user_id` is nullable; no foreign key yet because auth does not exist:```sqlpublic.entries (  id          uuid          PRIMARY KEY DEFAULT gen_random_uuid(),  user_id     uuid          NULL,  content     text          NOT NULL,  mood        text          NOT NULL,  mood_emoji  text          NOT NULL,  affirmation text          NOT NULL,  created_at  timestamptz   NOT NULL DEFAULT now())````002_add_user_id_and_rls.sql` (run in Phase 4) — adds `NOT NULL`, the foreign key to `auth.users`, enables RLS, and adds all three policies. All Phase 3 test rows must be deleted before this migration runs (see Phase 4 tasks).**Final production schema (after both migrations):**```sqlpublic.entries (  id          uuid          PRIMARY KEY DEFAULT gen_random_uuid(),  user_id     uuid          NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,  content     text          NOT NULL,  mood        text          NOT NULL,  mood_emoji  text          NOT NULL,  affirmation text          NOT NULL,  created_at  timestamptz   NOT NULL DEFAULT now())```**Migration rules:**- All schema changes are written as SQL and run in the Supabase dashboard SQL editor.- Migrations are saved as numbered files: `supabase/migrations/001_create_entries.sql`, `002_add_user_id_and_rls.sql`, etc.- Never alter a column type or drop a column without discussion.**Client rules:**- `lib/supabase/server.ts` is used in Server Components, Server Actions, API Routes, and middleware. It reads auth cookies via `@supabase/ssr`.- `lib/supabase/client.ts` is used only in Client Components that need real-time or auth state subscriptions. For MVP, this is only the auth forms.- The Supabase service role key (`SUPABASE_SERVICE_ROLE_KEY`) is **not used** in this project unless explicitly approved in writing. Use the anon key with RLS for all data access.**Query rules:**- Every query in a Server Action must be scoped to the authenticated user. Never query without a `user_id` filter after Phase 4.- Always select only the columns you need. Do not use `select('*')` in production queries after Phase 3.- Always handle the `error` object returned by Supabase queries. Never destructure only `data` and ignore `error`.---## Auth / RLS Rules**Auth setup:**- Use `@supabase/ssr` for all server-side session handling. Do not use the legacy `@supabase/auth-helpers-nextjs`.- `proxy.ts` must refresh the Supabase session on every request using the cookie-based client.- The `(app)/layout.tsx` auth guard checks for a session server-side and redirects to `/login` if absent.**RLS policies — mandatory before Phase 4 gate:**```sql-- Enable RLS on the tableALTER TABLE entries ENABLE ROW LEVEL SECURITY;-- SELECT: users see only their own entriesCREATE POLICY "users_select_own_entries"  ON entries FOR SELECT  USING (auth.uid() = user_id);-- INSERT: users can only insert rows with their own user_idCREATE POLICY "users_insert_own_entries"  ON entries FOR INSERT  WITH CHECK (auth.uid() = user_id);-- DELETE: users can only delete their own entriesCREATE POLICY "users_delete_own_entries"  ON entries FOR DELETE  USING (auth.uid() = user_id);```**RLS verification test (required before Phase 4 gate closes):**1. Create Account A, write two entries.2. Create Account B, write one entry.3. Log in as Account B.4. Confirm Account B cannot see or delete Account A's entries — neither via the UI nor via direct Supabase client query in browser DevTools.---## Phase Roadmap### Phase 0 — Project Scaffold + Vercel Deploy**Goal:** A live Vercel URL exists before any feature is written.Tasks:- Scaffold Next.js 15 with TypeScript, Tailwind, App Router- Install all dependencies: `@anthropic-ai/sdk`, `@supabase/ssr`, `@supabase/supabase-js`- Set up the full folder structure from the spec above (empty files with placeholder exports)- Create `.env.local` and `.env.example`- Push to GitHub- Connect to Vercel, add placeholder env vars, confirm auto-deploy**Definition of Done:**- [ ] `npm run dev` works locally with no errors- [ ] `npm run build` passes with no TypeScript errors- [ ] The default Next.js page is live on a Vercel `*.vercel.app` URL- [ ] GitHub push triggers an automatic Vercel redeploy- [ ] `.env.local` is in `.gitignore` and not present in the GitHub repo---### Phase 1 — Journal UI with Mock Data**Goal:** The complete app UI exists and is visually finished, powered entirely by hardcoded data.Tasks:- Define all types in `lib/types.ts`: `Entry`, `Mood`, `MoodResult`- Create `MOCK_ENTRIES` constant with 5–6 realistic fake entries covering multiple moods- Build `MoodBadge` — emoji + label, distinct Tailwind color per mood- Build `EntryCard` — content (truncated), mood badge, formatted date, delete placeholder- Build `EntryForm` — textarea, character counter, "Analyze" button in disabled/loading state- Build `/journal` page — `EntryForm` on top, `EntryCard` list below, fed from `MOCK_ENTRIES`- Add basic navigation shell (header with app name and placeholder nav links)- Make all components mobile-responsive- Deploy to Vercel**Definition of Done:**- [ ] `/journal` page renders correctly on mobile and desktop- [ ] All 8 mood types have a distinct visual treatment in `MoodBadge`- [ ] `EntryForm` shows a character counter and disables submit at 0 and >2000 chars- [ ] Loading state on the Analyze button is visible (spinner or disabled text)- [ ] No TypeScript errors on `npm run build`- [ ] Deployed and visually verified on the Vercel URL---### Phase 2 — Claude Mood Analysis via API Route**Goal:** The Analyze button calls Claude and returns a real mood. No persistence yet — the result lives only in React state.Tasks:- Implement `lib/claude.ts`: `analyzeEntry(content: string): Promise<MoodResult>`- Implement `app/api/analyze/route.ts`: POST handler with input validation, calls `analyzeEntry`, returns JSON- Wire `EntryForm` to POST to `/api/analyze` on button click- Display the returned `MoodResult` (badge + affirmation) below the form after analysis- Add `ANTHROPIC_API_KEY` to `.env.local` and Vercel environment variables- Handle loading state (spinner while waiting), error state (friendly message if Claude fails)- Test that refreshing the page clears the result (no persistence yet — that's Phase 3)**Definition of Done:**- [ ] Typing an entry and clicking Analyze returns a real mood from Claude within 5 seconds- [ ] The mood label is always one of the 8 valid values from the enum- [ ] Submitting fewer than 10 characters returns a validation error, not a Claude call- [ ] The `ANTHROPIC_API_KEY` is not visible in the browser network tab (check DevTools)- [ ] Claude failure returns the fallback mood gracefully with no crash- [ ] Works on the Vercel URL, not just localhost- [ ] `npm run build` passes---### Phase 3 — Supabase Database + Saving Entries**Goal:** Entries persist to Supabase. The mock data is removed. All data is real.**Schema note:** The `entries` table is created in this phase with `user_id` as nullable (no foreign key). Auth does not exist yet — adding a `NOT NULL` foreign key to `auth.users` without real users would break every INSERT. The column is tightened in Phase 4 once real users exist. This is intentional, not a shortcut.Tasks:- Create Supabase project, copy `SUPABASE_URL` and `SUPABASE_ANON_KEY` to `.env.local` and Vercel- Run `001_create_entries.sql` migration in Supabase SQL editor (`user_id uuid NULL`, no foreign key)- Implement `lib/supabase/server.ts` — simple anon client (no cookie handling yet)- Implement `actions/entries.ts`: `saveEntry()`, `getEntries()`, `deleteEntry()`- Update `EntryForm`: after Claude returns a mood, call `saveEntry()` automatically (no `user_id` passed yet)- Update `/journal` page: replace `MOCK_ENTRIES` with real data from `getEntries()`- Wire the delete button on `EntryCard` to `deleteEntry()`- Call `revalidatePath('/journal')` after save and delete**Definition of Done:**- [ ] Writing and analyzing an entry saves it to Supabase automatically- [ ] The entry list is populated from Supabase, not from mock data- [ ] `MOCK_ENTRIES` and all references to it are deleted from the codebase- [ ] Refreshing the page shows the same entries (persistence confirmed)- [ ] Deleting an entry removes it from the list and from the Supabase table- [ ] The entry row is visible in the Supabase dashboard Table Editor- [ ] `npm run build` passes, deployed and verified on Vercel---### Phase 4 — Supabase Auth + Row Level Security**Goal:** Every user has a private journal. Data is isolated by user. This is the most complex phase.**Migration note:** `002_add_user_id_and_rls.sql` adds `NOT NULL` and the `REFERENCES auth.users(id)` foreign key constraint to the `user_id` column. A `NOT NULL` constraint cannot be applied while rows with `NULL` in that column exist. Delete all Phase 3 test data before running this migration.Tasks:- **Delete all Phase 3 test entries** from the Supabase Table Editor before running any migration- Enable email/password auth in Supabase Auth settings- Switch `lib/supabase/server.ts` to the `@supabase/ssr` cookie-based client- Create `lib/supabase/client.ts` for browser usage- Add `proxy.ts` for session refresh- Build `/login` page with email + password form using Supabase `signInWithPassword`- Build `/signup` page using Supabase `signUp`- Add auth guard to `app/(app)/layout.tsx`- Run `002_add_user_id_and_rls.sql`: add `NOT NULL` + foreign key to `user_id`, enable RLS, add all three policies- Update all Server Actions to scope queries by `auth.uid()`- Add logout button to nav shell- Run the two-account RLS verification test**Definition of Done:**- [ ] All Phase 3 test rows deleted before migration runs- [ ] Signing up with a new email creates an account and redirects to `/journal`- [ ] Logging out redirects to `/login`- [ ] Visiting `/journal` while logged out redirects to `/login`- [ ] Two-account isolation test passes: Account B cannot see Account A's entries- [ ] RLS policies are active (verify in Supabase Auth Policies UI)- [ ] No use of service role key anywhere in the codebase- [ ] `npm run build` passes, deployed and verified on Vercel---### Phase 5 — Stats, Polish, and Hardening**Goal:** The app is finished, feels polished, and is safe to leave running in production.**Stats tasks:**- Build `/stats` page: count entries per mood for last 30 days- Display as a visual pill cluster or simple bar (no chart library)- Add nav links between `/journal` and `/stats`**Polish tasks:**- Empty state on `/journal` for first-time users- Empty state on `/stats` when fewer than 3 entries exist- Error boundary or fallback UI if the journal page fails to load- Loading skeleton for the entry list- Character counter warning colour change at 1800/2000 chars- `<title>`, `<meta description>`, and favicon**Hardening tasks:**- Rate limiting: check entry count for today in `route.ts` before calling Claude; return 429 if ≥ 20- Input sanitization: strip leading/trailing whitespace, reject entries that are only whitespace- Audit all environment variable names — confirm nothing secret has `NEXT_PUBLIC_` prefix- Re-run the two-account RLS test with a fresh browser session- Final `npm run build` with zero warnings- Full smoke test on Vercel: sign up → write entry → analyze → view stats → log out → log back in**Definition of Done:**- [ ] `/stats` page shows accurate mood counts for the last 30 days- [ ] All empty and error states are handled gracefully- [ ] Rate limiting blocks the 21st Claude call in a single day- [ ] No `NEXT_PUBLIC_` env vars contain secret values- [ ] A person who has never seen the app can use it without guidance- [ ] `npm run build` produces zero TypeScript errors and zero warnings- [ ] Every phase gate from Phase 0 through Phase 5 has been verified on the Vercel URL---## Rules for Working Together During This ProjectThese rules govern how I (Claude) will behave during every coding session.**Before writing any code:**1. State which phase we are in.2. Confirm the current phase gate has passed before starting the next phase. If it hasn't, stop and ask.3. Read this file in full if starting a new session.**During coding:**4. Write one logical unit at a time — one file, one function, one component. Do not generate the entire codebase in one response.5. After each file, explain what it does and why it is structured that way. You are here to learn, not just to ship.6. If a task requires a decision (e.g., which Tailwind color for a mood, what the affirmation prompt says), ask for input rather than deciding silently.7. Never skip error handling to make the code shorter.8. Never use the Supabase service role key. If I ask you to, remind me of this rule and propose an alternative.9. Never call the Claude API from a Client Component or any file with `"use client"`. If asked, refuse and explain why.**When I go off-script:**10. If I ask for a feature that is out of scope, name the feature, confirm it is out of scope per this document, and ask whether I want to log it for Phase 6 or formally change the scope.11. If I ask to skip a phase gate, remind me of the rule: *"Do not start the next phase until the current gate passes on Vercel."* Explain what is at risk if we skip.12. If I ask to add a library that is not in the tech stack, discuss the tradeoff before adding it. Default answer is no unless there is a strong reason.**On quality:**13. Every generated file must pass `npm run build` with no TypeScript errors before being considered complete.14. Every component must handle its loading, error, and empty states before the phase is marked done.15. Production code never contains `console.log`, `TODO` comments (unless explicitly flagged for a later phase), or hardcoded secrets.**On learning:**16. If I copy code without understanding it, slow down and explain the concept before moving on.17. At the end of each phase, summarize what was learned before starting the next one.18. If I ask "why" about any architectural decision, always answer — even if it means a longer response.---*This file was created before any feature code was written. It is the contract for this project.**Last updated: Phase 3/4 schema contradiction resolved — two-migration strategy adopted.*
