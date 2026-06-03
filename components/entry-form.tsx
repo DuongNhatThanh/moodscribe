@@ -32,6 +32,7 @@ export default function EntryForm(): React.ReactElement {
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<MoodResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [limitError, setLimitError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const length = content.length
@@ -41,9 +42,10 @@ export default function EntryForm(): React.ReactElement {
 
   function handleContentChange(e: React.ChangeEvent<HTMLTextAreaElement>): void {
     setContent(e.target.value)
-    // Clear stale analysis result and both error states when the user edits
+    // Clear stale analysis result and all error states when the user edits
     if (result !== null) setResult(null)
     if (error !== null) setError(null)
+    if (limitError !== null) setLimitError(null)
     if (saveError !== null) setSaveError(null)
   }
 
@@ -52,6 +54,7 @@ export default function EntryForm(): React.ReactElement {
     setIsLoading(true)
     setResult(null)
     setError(null)
+    setLimitError(null)
     setSaveError(null)
 
     try {
@@ -70,7 +73,11 @@ export default function EntryForm(): React.ReactElement {
           typeof (data as Record<string, unknown>).error === 'string'
             ? (data as Record<string, unknown>).error as string
             : 'Something went wrong. Please try again.'
-        setError(message)
+        if (response.status === 429) {
+          setLimitError(message)
+        } else {
+          setError(message)
+        }
         return
       }
 
@@ -86,6 +93,8 @@ export default function EntryForm(): React.ReactElement {
         await saveEntry(content, data)
         // Revalidate the Server Component tree so the new entry appears in the list
         router.refresh()
+        // Only clear the textarea when both analysis and save succeed
+        setContent('')
       } catch {
         // Save failure is non-blocking: the mood result stays visible
         setSaveError('Your entry was analysed but could not be saved. Please try again.')
@@ -138,6 +147,12 @@ export default function EntryForm(): React.ReactElement {
       {error !== null && (
         <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
           {error}
+        </p>
+      )}
+
+      {limitError !== null && (
+        <p role="alert" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          {limitError}
         </p>
       )}
 

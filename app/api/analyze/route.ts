@@ -47,6 +47,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     )
   }
 
+  // Entry-based daily limit: max 20 entries per user per UTC day.
+  const startOfUtcDay = new Date()
+  startOfUtcDay.setUTCHours(0, 0, 0, 0)
+
+  const { count, error: countError } = await supabase
+    .from('entries')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .gte('created_at', startOfUtcDay.toISOString())
+
+  if (countError) {
+    return NextResponse.json(
+      { error: 'Could not verify daily limit. Please try again.' },
+      { status: 500 },
+    )
+  }
+
+  if ((count ?? 0) >= 20) {
+    return NextResponse.json(
+      { error: 'You have reached the daily limit of 20 entries. Come back tomorrow.' },
+      { status: 429 },
+    )
+  }
+
   try {
     const result = await analyzeEntry(trimmed)
     return NextResponse.json(result, { status: 200 })

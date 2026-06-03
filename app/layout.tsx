@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MoodScribe",
-  description: "A calm space to write, reflect, and understand your emotions over time.",
+  title: { default: 'MoodScribe', template: '%s — MoodScribe' },
+  description: 'A calm space to write, reflect, and understand your emotions over time.',
 };
 
 export default function RootLayout({

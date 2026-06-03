@@ -1,5 +1,6 @@
 import type { Entry } from '@/lib/types'
 import MoodBadge from '@/components/mood-badge'
+import DeleteButton from '@/components/delete-button'
 import { deleteEntry } from '@/actions/entries'
 
 type EntryCardProps = {
@@ -28,13 +29,7 @@ export default function EntryCard({ entry }: EntryCardProps): React.ReactElement
       <div className="flex items-start justify-between gap-4">
         <MoodBadge mood={entry.mood} emoji={entry.mood_emoji} />
         <form action={handleDelete}>
-          <button
-            type="submit"
-            aria-label="Delete entry"
-            className="text-xs text-stone-400 hover:text-red-500 transition-colors cursor-pointer"
-          >
-            Delete
-          </button>
+          <DeleteButton />
         </form>
       </div>
 
