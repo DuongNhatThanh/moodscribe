@@ -1,12 +1,26 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
+import { createServerClient } from '@/lib/supabase/server'
 
-// App shell for all authenticated routes.
-// Auth guard (redirect to /login if no session) added in Phase 4.
-export default function AppLayout({
+export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode
-}): React.ReactElement {
+}): Promise<React.ReactElement> {
+  const supabase = await createServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  async function handleLogout(): Promise<never> {
+    'use server'
+    const supabase = await createServerClient()
+    await supabase.auth.signOut()
+    redirect('/login')
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-stone-50">
       <header className="border-b border-stone-200 bg-white">
@@ -33,6 +47,16 @@ export default function AppLayout({
               >
                 Stats
               </Link>
+            </li>
+            <li>
+              <form action={handleLogout}>
+                <button
+                  type="submit"
+                  className="text-sm text-stone-500 hover:text-stone-900 cursor-pointer"
+                >
+                  Log out
+                </button>
+              </form>
             </li>
           </ul>
         </nav>

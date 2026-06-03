@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { analyzeEntry } from '@/lib/claude'
+import { createServerClient } from '@/lib/supabase/server'
 
 // POST /api/analyze
 // Input:  { content: string }
 // Output: MoodResult JSON — { mood, emoji, affirmation }
+// Returns 401 if the request is unauthenticated.
 // Returns 400 for missing, invalid, or out-of-range content.
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const supabase = await createServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Authentication required.' }, { status: 401 })
+  }
+
   let body: unknown
   try {
     body = await request.json()

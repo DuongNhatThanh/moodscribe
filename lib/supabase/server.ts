@@ -1,9 +1,10 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { createServerClient as createSSRClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 
-// Returns a Supabase client using the anon key.
-// Phase 3: simple anon client — no cookie handling yet.
-// Phase 4 will replace this with an @supabase/ssr cookie-based client once sessions exist.
-export function createServerClient(): SupabaseClient {
+// Returns a Supabase client that reads and writes auth cookies.
+// Used in Server Components, Server Actions, API Routes, and proxy.ts.
+// In Next.js 16 / React 19, cookies() is async and must be awaited.
+export async function createServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
@@ -14,5 +15,24 @@ export function createServerClient(): SupabaseClient {
     )
   }
 
-  return createClient(url, key)
+  const cookieStore = await cookies()
+
+  return createSSRClient(url, key, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll()
+      },
+      setAll(cookiesToSet) {
+        try {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            cookieStore.set(name, value, options),
+          )
+        } catch {
+          // setAll called from a Server Component — cookies cannot be set here.
+          // proxy.ts handles session refresh and is the only context where
+          // cookies can be written.
+        }
+      },
+    },
+  })
 }

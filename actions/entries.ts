@@ -9,15 +9,17 @@ export async function saveEntry(
   content: string,
   result: MoodResult,
 ): Promise<void> {
-  const supabase = createServerClient()
+  const supabase = await createServerClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated.')
 
   const { error } = await supabase.from('entries').insert({
     content,
     mood: result.mood,
-    // MoodResult uses 'emoji'; the entries table column is 'mood_emoji'
     mood_emoji: result.emoji,
     affirmation: result.affirmation,
-    user_id: null, // Phase 3: no auth yet; tightened to NOT NULL in Phase 4
+    user_id: user.id,
   })
 
   if (error) {
@@ -28,10 +30,14 @@ export async function saveEntry(
   revalidatePath('/journal')
 }
 
-/** Fetch all entries ordered by most recent first. */
+/** Fetch all entries for the authenticated user, ordered by most recent first. */
 export async function getEntries(): Promise<Entry[]> {
-  const supabase = createServerClient()
+  const supabase = await createServerClient()
 
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated.')
+
+  // RLS enforces the user_id filter at the database layer.
   const { data, error } = await supabase
     .from('entries')
     .select('id, user_id, content, mood, mood_emoji, affirmation, created_at')
@@ -45,9 +51,12 @@ export async function getEntries(): Promise<Entry[]> {
   return (data ?? []) as Entry[]
 }
 
-/** Delete an entry by id. */
+/** Delete an entry by id. RLS enforces ownership at the database layer. */
 export async function deleteEntry(id: string): Promise<void> {
-  const supabase = createServerClient()
+  const supabase = await createServerClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated.')
 
   const { error } = await supabase.from('entries').delete().eq('id', id)
 
