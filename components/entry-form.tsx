@@ -1,29 +1,82 @@
 'use client'
 
 import { useState } from 'react'
+import type { Mood, MoodResult } from '@/lib/types'
+import MoodBadge from '@/components/mood-badge'
 
 const MIN_LENGTH = 10
 const MAX_LENGTH = 2000
 const WARN_LENGTH = 1800
 
-// EntryForm is the only Client Component in Phase 1 — it owns textarea
-// state and the Analyze button interaction. API wiring is added in Phase 2.
+const VALID_MOODS: readonly Mood[] = [
+  'happy', 'sad', 'anxious', 'calm', 'angry', 'reflective', 'grateful', 'overwhelmed',
+]
+
+function isMoodResult(value: unknown): value is MoodResult {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.mood === 'string' &&
+    typeof v.emoji === 'string' &&
+    typeof v.affirmation === 'string' &&
+    VALID_MOODS.includes(v.mood as Mood)
+  )
+}
+
 export default function EntryForm(): React.ReactElement {
   const [content, setContent] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [result, setResult] = useState<MoodResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const length = content.length
   const tooShort = length < MIN_LENGTH
   const tooLong = length > MAX_LENGTH
   const isDisabled = tooShort || tooLong || isLoading
 
-  // Simulated loading: only resets isLoading — content is intentionally kept.
-  // Real API call replaces this stub in Phase 2.
+  function handleContentChange(e: React.ChangeEvent<HTMLTextAreaElement>): void {
+    setContent(e.target.value)
+    // Clear stale result and error so they don't linger after the user edits
+    if (result !== null) setResult(null)
+    if (error !== null) setError(null)
+  }
+
   async function handleAnalyze(): Promise<void> {
     if (isDisabled) return
     setIsLoading(true)
-    await new Promise<void>((resolve) => setTimeout(resolve, 1000))
-    setIsLoading(false)
+    setResult(null)
+    setError(null)
+
+    try {
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      })
+
+      const data: unknown = await response.json()
+
+      if (!response.ok) {
+        const message =
+          typeof data === 'object' &&
+          data !== null &&
+          typeof (data as Record<string, unknown>).error === 'string'
+            ? (data as Record<string, unknown>).error as string
+            : 'Something went wrong. Please try again.'
+        setError(message)
+        return
+      }
+
+      if (!isMoodResult(data)) {
+        setError('Received an unexpected response. Please try again.')
+        return
+      }
+      setResult(data)
+    } catch {
+      setError('Could not reach the server. Check your connection and try again.')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const counterColor =
@@ -34,10 +87,10 @@ export default function EntryForm(): React.ReactElement {
         : 'text-stone-400'
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <textarea
         value={content}
-        onChange={(e) => setContent(e.target.value)}
+        onChange={handleContentChange}
         placeholder="Write your journal entry…"
         rows={6}
         className="w-full resize-none rounded-2xl border border-stone-200 bg-white p-4 text-sm leading-relaxed text-stone-800 placeholder:text-stone-400 focus:border-stone-400 focus:outline-none"
@@ -63,6 +116,19 @@ export default function EntryForm(): React.ReactElement {
           {isLoading ? 'Analyzing…' : 'Analyze'}
         </button>
       </div>
+
+      {error !== null && (
+        <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
+          {error}
+        </p>
+      )}
+
+      {result !== null && (
+        <div className="flex flex-col gap-2 rounded-2xl border border-stone-200 bg-white p-4">
+          <MoodBadge mood={result.mood} emoji={result.emoji} />
+          <p className="text-sm leading-relaxed text-stone-600">{result.affirmation}</p>
+        </div>
+      )}
     </div>
   )
 }
