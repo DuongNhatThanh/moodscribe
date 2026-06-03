@@ -1,8 +1,10 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import type { Mood, MoodResult } from '@/lib/types'
 import MoodBadge from '@/components/mood-badge'
+import { saveEntry } from '@/actions/entries'
 
 const MIN_LENGTH = 10
 const MAX_LENGTH = 2000
@@ -24,10 +26,13 @@ function isMoodResult(value: unknown): value is MoodResult {
 }
 
 export default function EntryForm(): React.ReactElement {
+  const router = useRouter()
+
   const [content, setContent] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<MoodResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const length = content.length
   const tooShort = length < MIN_LENGTH
@@ -36,9 +41,10 @@ export default function EntryForm(): React.ReactElement {
 
   function handleContentChange(e: React.ChangeEvent<HTMLTextAreaElement>): void {
     setContent(e.target.value)
-    // Clear stale result and error so they don't linger after the user edits
+    // Clear stale analysis result and both error states when the user edits
     if (result !== null) setResult(null)
     if (error !== null) setError(null)
+    if (saveError !== null) setSaveError(null)
   }
 
   async function handleAnalyze(): Promise<void> {
@@ -46,6 +52,7 @@ export default function EntryForm(): React.ReactElement {
     setIsLoading(true)
     setResult(null)
     setError(null)
+    setSaveError(null)
 
     try {
       const response = await fetch('/api/analyze', {
@@ -71,7 +78,18 @@ export default function EntryForm(): React.ReactElement {
         setError('Received an unexpected response. Please try again.')
         return
       }
+
+      // Analysis succeeded — display the result immediately, then persist
       setResult(data)
+
+      try {
+        await saveEntry(content, data)
+        // Revalidate the Server Component tree so the new entry appears in the list
+        router.refresh()
+      } catch {
+        // Save failure is non-blocking: the mood result stays visible
+        setSaveError('Your entry was analysed but could not be saved. Please try again.')
+      }
     } catch {
       setError('Could not reach the server. Check your connection and try again.')
     } finally {
@@ -128,6 +146,12 @@ export default function EntryForm(): React.ReactElement {
           <MoodBadge mood={result.mood} emoji={result.emoji} />
           <p className="text-sm leading-relaxed text-stone-600">{result.affirmation}</p>
         </div>
+      )}
+
+      {saveError !== null && (
+        <p role="alert" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          {saveError}
+        </p>
       )}
     </div>
   )
