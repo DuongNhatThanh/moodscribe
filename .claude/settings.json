@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if grep -rn \"NEXT_PUBLIC_ANTHROPIC[A-Z_]*=\" . --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" --include=\"*.env\" --include=\"*.env.*\" --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.claude --exclude=\"CLAUDE.md\"; then echo \"Forbidden pattern found: NEXT_PUBLIC_ANTHROPIC key\"; exit 1; fi; exit 0"
+          },
+          {
+            "type": "command",
+            "command": "if grep -rn \"SUPABASE_SERVICE_ROLE_KEY\" . --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" --include=\"*.env\" --include=\"*.env.*\" --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.claude --exclude=\"CLAUDE.md\"; then echo \"Forbidden pattern found: SUPABASE_SERVICE_ROLE_KEY\"; exit 1; fi; exit 0"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -q 'git commit'; then npx tsc --noEmit; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
